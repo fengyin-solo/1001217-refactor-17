@@ -23,17 +23,37 @@ def list_entries(
     page: int = 1,
     size: int = 20,
 ) -> PageResult[dict]:
-    """按驾驶员编号与状态过滤司机管理列表；没有数据时返回空页，不报错。"""
+    """按驾驶员编号与状态过滤司机管理列表；没有数据时返回空页，不报错。
+
+    每行附带的「可派车」结论来自统一口径（driver_eligibility），
+    与司机详情、调度派车校验是同一份实现，列表侧不再自行判断。
+    """
     if size > 200:
         raise HTTPException(status_code=400, detail="每页最多 200 条，请缩小分页范围")
-    items, total = service.list_entries(keyword=keyword, status=status, page=page, size=size)
+    items, total = service.list_entries(
+        keyword=keyword, status=status, page=page, size=size, with_eligibility=True
+    )
     return PageResult(items=items, total=total, page=page, size=size)
+
+
+@router.get("/export")
+def export_entries() -> dict[str, Any]:
+    """导出司机管理清单：返回当前过滤条件下的全量数据。
+
+    导出保持既有档案原样，不挂「可派车」结论，避免导出格式走样。
+    注意：本静态路由必须排在 ``/{entry_id}`` 之前，否则会被当成 id 解析。
+    """
+    items, total = service.list_entries(page=1, size=10000)
+    return {"module": "driver", "total": total, "items": items}
 
 
 @router.get("/{entry_id}", response_model=dict)
 def get_entry(entry_id: int) -> dict:
-    """读取单条驾驶员明细；不存在时给出可读的错误说明。"""
-    entry = service.get_entry(entry_id)
+    """读取单条驾驶员明细；不存在时给出可读的错误说明。
+
+    明细里的「可派车」与列表、调度派车走同一份判断，保证三处结论一致。
+    """
+    entry = service.get_entry(entry_id, with_eligibility=True)
     if entry is None:
         raise HTTPException(status_code=404, detail=f"驾驶员 {entry_id} 不存在或已归档")
     return entry
@@ -56,10 +76,3 @@ def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
     if entry is None:
         return ActionResult(ok=False, message=message)
     return ActionResult(ok=True, message=message, entry=entry)
-
-
-@router.get("/export")
-def export_entries() -> dict[str, Any]:
-    """导出司机管理清单：返回当前过滤条件下的全量数据。"""
-    items, total = service.list_entries(page=1, size=10000)
-    return {"module": "driver", "total": total, "items": items}

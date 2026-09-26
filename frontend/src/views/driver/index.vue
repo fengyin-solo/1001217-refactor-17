@@ -31,13 +31,24 @@
       <thead>
         <tr>
           <th v-for="column in columns" :key="column">{{ column }}</th>
+          <th>可派车</th>
           <th>可执行动作</th>
         </tr>
       </thead>
       <tbody>
         <tr v-for="row in rows" :key="String(row.id)">
           <td v-for="column in columns" :key="column">{{ row[column] ?? '—' }}</td>
+          <td>
+            <span
+              class="tag"
+              :class="rowVerdict(row)?.dispatchable ? 'ok' : 'bad'"
+              :title="(verdictReasons(rowVerdict(row)).join('；') || '准驾车型、从业资格、出勤状态均满足派车要求')"
+            >
+              {{ verdictLabel(rowVerdict(row)) }}
+            </span>
+          </td>
           <td class="row-actions">
+            <button class="link" type="button" @click="openDetail(row)">详情</button>
             <button
               v-for="action in actions"
               :key="action"
@@ -50,7 +61,7 @@
           </td>
         </tr>
         <tr v-if="!rows.length">
-          <td :colspan="columns.length + 1" class="empty-state">暂无司机管理数据，可先登记驾驶员</td>
+          <td :colspan="columns.length + 2" class="empty-state">暂无司机管理数据，可先登记驾驶员</td>
         </tr>
       </tbody>
     </table>
@@ -59,6 +70,34 @@
       <span>共 {{ total }} 条司机管理记录</span>
       <span v-if="errorMessage" class="error-text">{{ errorMessage }}</span>
     </footer>
+
+    <div v-if="detailRow" class="modal-mask" @click.self="closeDetail">
+      <div class="modal">
+        <div class="modal-head">
+          <h3>司机详情 · {{ detailRow.驾驶员姓名 ?? '' }}</h3>
+          <button class="link" type="button" @click="closeDetail">关闭</button>
+        </div>
+        <div v-if="detailLoading" class="modal-body">详情读取中…</div>
+        <div v-else-if="detailVerdict" class="modal-body">
+          <dl class="detail-grid">
+            <template v-for="column in columns" :key="column">
+              <dt>{{ column }}</dt>
+              <dd>{{ detailRow[column] ?? '—' }}</dd>
+            </template>
+          </dl>
+          <div class="verdict-box">
+            <div class="verdict-head">
+              <span>可派车结论</span>
+              <span class="tag" :class="detailVerdict.dispatchable ? 'ok' : 'bad'">{{ detailVerdict.label }}</span>
+            </div>
+            <ul v-if="detailVerdict.reasons.length" class="verdict-reasons">
+              <li v-for="reason in detailVerdict.reasons" :key="reason">{{ reason }}</li>
+            </ul>
+            <p v-else class="verdict-reasons empty">准驾车型、从业资格、出勤状态均满足派车要求</p>
+          </div>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -66,8 +105,10 @@
 import { onMounted, ref } from 'vue'
 
 import { request } from '@/api/client'
+import { resolveVerdict, verdictLabel, verdictReasons, type DispatchVerdict } from '@/api/dispatchVerdict'
 
 type Row = Record<string, string | number | null>
+type DetailRow = Record<string, string | number | DispatchVerdict | null>
 
 const ENDPOINT = '/api/driver'
 const columns = ["驾驶员编号", "驾驶员姓名", "驾驶证号", "准驾车型", "从业资格", "联系电话", "所属车队", "出勤状态"]
@@ -81,6 +122,15 @@ const errorMessage = ref('')
 const filters = ref<Record<string, string>>({})
 const filterFields = columns.slice(0, 3)
 
+// 列表行与详情弹窗都只读取后端挂在「可派车」上的统一结论，前端不再自行判断。
+const detailRow = ref<DetailRow | null>(null)
+const detailVerdict = ref<DispatchVerdict | null>(null)
+const detailLoading = ref(false)
+
+function rowVerdict(row: Row): DispatchVerdict | null {
+  return resolveVerdict(row as unknown as { 可派车?: DispatchVerdict | null })
+}
+
 function resetFilters() {
   filters.value = {}
   void reload()
@@ -92,6 +142,30 @@ function exportRows() {
 
 function openCreate() {
   errorMessage.value = '驾驶员登记入口尚未接入审批流'
+}
+
+async function openDetail(row: Row) {
+  detailRow.value = { ...row }
+  detailVerdict.value = rowVerdict(row)
+  detailLoading.value = true
+  try {
+    const response = await request(`${ENDPOINT}/${row.id}`)
+    if (!response.ok) {
+      throw new Error('司机详情读取失败')
+    }
+    const payload = (await response.json()) as DetailRow
+    detailRow.value = payload
+    detailVerdict.value = resolveVerdict(payload as { 可派车?: DispatchVerdict | null })
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '司机详情读取失败'
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+function closeDetail() {
+  detailRow.value = null
+  detailVerdict.value = null
 }
 
 async function runAction(action: string, row: Row) {
