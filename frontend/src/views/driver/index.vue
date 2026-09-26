@@ -70,7 +70,7 @@ import { request } from '@/api/client'
 type Row = Record<string, string | number | null>
 
 const ENDPOINT = '/api/driver'
-const columns = ["驾驶员编号", "驾驶员姓名", "驾驶证号", "准驾车型", "从业资格", "联系电话", "所属车队", "出勤状态"]
+const columns = ["驾驶员编号", "驾驶员姓名", "驾驶证号", "准驾车型", "从业资格", "联系电话", "所属车队", "出勤状态", "可派车结论"]
 const actions = ["派车出勤", "登记休假", "办理离职"]
 const statuses = ["空闲", "出车中", "休假", "已离职"]
 const stats = [{"label": "空闲驾驶员", "value": 0}, {"label": "出车中驾驶员", "value": 0}, {"label": "休假驾驶员", "value": 0}]
